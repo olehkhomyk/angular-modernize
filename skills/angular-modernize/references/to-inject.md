@@ -1,189 +1,57 @@
-# Operation: to-inject (constructor DI → `inject()` function)
+# to-inject
 
-Convert legacy constructor parameter injection to the `inject()` function form. Requires Angular **v14+** (recommended v16+ for full support including `inject` in field initializers without manual workarounds).
+Convert constructor parameter DI → `inject()` field. Requires Angular v14+.
 
-## Goal
+## Eligibility
 
-Before:
-```ts
-constructor(
-  private schoolAdminService: SchoolAdminService,
-  private confirmationService: ConfirmationService,
-  private messageService: MessageService,
-  private fb: UntypedFormBuilder,
-  private blockUIService: BlockUIService,
-  private technicalContactService: TechnicalContactService,
-  private addContractComponent: AddContractComponent,
-) {
-  super();
-  this.initForm();
-}
-```
+A constructor parameter is eligible iff it has an access modifier: `private` / `protected` / `public` / `readonly` (these are the parameters TS turns into class fields). Plain params (no modifier) stay in the constructor.
 
-After:
-```ts
-private schoolAdminService = inject(SchoolAdminService);
-private confirmationService = inject(ConfirmationService);
-private messageService = inject(MessageService);
-private fb = inject(UntypedFormBuilder);
-private blockUIService = inject(BlockUIService);
-private technicalContactService = inject(TechnicalContactService);
-private addContractComponent = inject(AddContractComponent);
+## Conversion
 
-constructor() {
-  super();
-  this.initForm();
-}
-```
+For each eligible `<modifiers> <name>: <Type>`:
+- Create field: `<modifiers> <name> = inject(<Type>);`
+- Preserve modifier(s) verbatim (`private readonly` stays `private readonly`).
+- Remove the param from the constructor signature.
 
-## Rules
+Same name already exists as a field → leave + TODO `// TODO(ng-migrate): to-inject: name collision for <name> — manual review`.
 
-### 1. Eligible parameters
+## Decorator translations
 
-A constructor parameter is eligible **if and only if** it has an access modifier (`private`, `protected`, `public`, or `readonly`) — those are the parameters TypeScript turns into class fields. Plain parameters (no modifier) are local to the constructor body and stay in place.
+| Decorator                  | Conversion                                          |
+| -------------------------- | --------------------------------------------------- |
+| `@Inject(TOKEN) x`         | `x = inject(TOKEN)` (token type inferred)           |
+| `@Optional() x: T`         | `x = inject(T, { optional: true })`                 |
+| `@Self() x: T`             | `x = inject(T, { self: true })`                     |
+| `@SkipSelf() x: T`         | `x = inject(T, { skipSelf: true })`                 |
+| `@Host() x: T`             | `x = inject(T, { host: true })`                     |
 
-```ts
-// eligible (becomes a field):
-constructor(private foo: Foo) {}
+Multiple decorators → merge into one options object. Unknown DI decorator → leave + TODO.
 
-// NOT eligible (local-only):
-constructor(foo: Foo) {}
-```
+## Constructor body
 
-### 2. Conversion
+After moving params out:
+- Body has any statement (incl. `super()`) → keep `constructor()` with empty params.
+- Body empty + class doesn't extend → remove the constructor.
+- Body empty + class extends → keep `constructor() { super(); }`.
+- `super(...)` uses a constructor param's value → leave that param in the signature, don't convert it; add TODO `// TODO(ng-migrate): to-inject: parameter <name> forwarded to super(...) — manual review`.
 
-For each eligible parameter `<modifier> <name>: <Type>`:
+## Field placement (strict)
 
-- Create a class field: `<modifier> <name> = inject(<Type>);`
-- Place it where existing `inject(...)` fields live, or directly above the constructor.
-- Preserve all modifiers exactly (`private`, `protected`, `public`, `readonly`, combinations like `private readonly`).
-- Remove the parameter from the constructor signature.
+Inject block sits **at the constructor's position** (immediately above it, or where it used to be if removed). Order of class members after migration:
 
-If the field already exists with the same name (rare collision), skip and add:
-`// TODO(ng-migrate): to-inject: name collision for <name> — manual review`
+1. Plain fields, signals (`signal()`, `input()`, `input.required()`, `model()`, `output()`, `viewChild()`, `contentChild()`, `toSignal()`)
+2. `computed(...)`
+3. Getters / setters
+4. **Inject block** (pre-existing + new injects, original parameter order, contiguous; `take-until-destroyed` later appends `destroyRef` here)
+5. Constructor (if kept)
+6. Methods
 
-### 3. Decorators on parameters
+Do not interleave the inject block with anything else.
 
-Convert each common DI decorator to the `inject()` option object:
+## Imports
 
-| Decorator                       | Conversion                                                |
-| ------------------------------- | --------------------------------------------------------- |
-| `@Inject(TOKEN) private x: T`   | `private x = inject(TOKEN);`                              |
-| `@Optional() private x: T`      | `private x = inject(<Type>, { optional: true });`         |
-| `@Self() private x: T`          | `private x = inject(<Type>, { self: true });`             |
-| `@SkipSelf() private x: T`      | `private x = inject(<Type>, { skipSelf: true });`         |
-| `@Host() private x: T`          | `private x = inject(<Type>, { host: true });`             |
+Add `inject` from `@angular/core` if missing. Keep imports of injected types — they remain as `inject(<Type>)` arguments.
 
-Combine multiple decorators by merging into one options object:
-```ts
-@Optional() @SkipSelf() private x: T
-// → private x = inject<T | null>(<Type>, { optional: true, skipSelf: true });
-```
+## Don't touch
 
-For `@Inject(TOKEN)` where `TOKEN` is an `InjectionToken<T>`, the type is inferred — drop the type annotation in the new form unless it differs from the token's type.
-
-If a decorator is unfamiliar (e.g. a custom DI decorator), leave the parameter as-is and add:
-`// TODO(ng-migrate): to-inject: unknown decorator <Decorator> — manual review`
-
-### 4. Constructor body handling
-
-After moving all eligible parameters out:
-
-- If the constructor body is **non-empty** (has any statement, including `super()`), keep the constructor with an empty parameter list:
-  ```ts
-  constructor() {
-    super();
-    this.initForm();
-  }
-  ```
-- If the constructor body is **empty AND the class does not extend another class**, remove the constructor entirely.
-- If the constructor body is **empty BUT the class extends another class** with a constructor that requires `super()`, keep an empty constructor with `super()`:
-  ```ts
-  constructor() {
-    super();
-  }
-  ```
-  (Many base classes have a no-arg constructor and don't strictly need `super()`, but it's safe to keep it.)
-- If `super(...)` is called with arguments that came from the constructor parameters, leave those parameters in the signature and do not convert them. Add:
-  `// TODO(ng-migrate): to-inject: parameter <name> is forwarded to super(...) — manual review`
-
-### 5. Field placement (strict)
-
-The block of `inject(...)` fields goes **at the constructor's position** — i.e. directly above the constructor if it still exists, or exactly where the constructor used to be if it was removed. They come **after** all of the following, in this order:
-
-1. Plain class fields and signal fields (`signal()`, `input()`, `input.required()`, `model()`, `output()`, `viewChild()`, `contentChild()`, `toSignal()`).
-2. `computed(...)` fields.
-3. Getters (`get foo() { ... }`) and setters (`set foo(v) { ... }`).
-4. Any pre-existing `inject(...)` fields the user had — new injections append directly after these as a single contiguous block.
-5. **The injected block goes here, just above where the constructor sits (or sat).**
-6. Constructor (if it still exists).
-7. Methods (`ngOnInit`, `ngOnChanges`, custom methods, etc.).
-
-Concretely, after migration the class body should look like:
-
-```ts
-export class Foo extends Bar {
-  // (1) signals / inputs / outputs / viewChild / etc.
-  loading = signal<boolean>(true);
-  count = input<number>(0);
-  saved = output<User>();
-
-  // (2) computed
-  total = computed(() => this.count() * 2);
-
-  // (3) getters / setters
-  get isReady() { return this.loading() === false; }
-
-  // (4) + (5) inject block (new + pre-existing, in original parameter order)
-  private fooSvc = inject(FooService);
-  private barSvc = inject(BarService);
-  private destroyRef = inject(DestroyRef);
-
-  // (6) constructor (only if body has logic; otherwise removed)
-  constructor() {
-    super();
-    this.initForm();
-  }
-
-  // (7) methods
-  ngOnInit() { ... }
-  doThing() { ... }
-}
-```
-
-Rules:
-- Preserve the relative order of injected services — same order as the original constructor parameter list.
-- Do not interleave inject fields with non-inject fields. The block must be contiguous.
-- If `take-until-destroyed` adds `destroyRef = inject(DestroyRef)` later, it appends to the end of the same block.
-- If the class has NO constructor (it was removed because the body was empty), the inject block goes directly between getters/setters (group 3) and methods (group 7).
-
-### 6. Imports
-
-Ensure `inject` is imported from `@angular/core`:
-```ts
-import { inject } from '@angular/core';
-```
-Add it if missing. Do not remove existing imports of injected types — they're still used as the argument to `inject(...)`.
-
-### 7. Do not refactor
-
-- Do not rename injected services.
-- Do not change visibility (`private` stays `private`, etc.).
-- Do not reorder the existing class members beyond the placement rule for new inject fields.
-- Do not touch usages — `this.fooService.x()` continues to work identically.
-
-## Edge cases
-
-- **Manual injector usage** (`Injector.get(...)`, `this.injector.get(...)`): not in scope; leave as-is.
-- **Field-initializer ordering**: if a non-inject field initializer references `this.<injectedService>` (e.g. `data = this.svc.getInitial();`), keep that — `inject()` works in field initializers in v14+, and the order of field declarations determines initialization order. If a non-inject field appears before the inject fields after migration, swap so all `inject(...)` fields come first.
-- **`@Injectable({ providedIn: 'root' })` services with constructor DI**: same migration applies.
-- **`@Component`, `@Directive`, `@Pipe` classes**: same migration applies.
-
-## Validation checklist
-
-- Every former parameter-property is now a class field with `inject(...)`.
-- Constructor signature is empty `constructor()` or removed (per rules above).
-- All access modifiers preserved.
-- `inject` import present.
-- No call sites changed (`this.foo` references still resolve).
-- No injected service was lost or renamed.
+Visibility, names, types, call sites (`this.foo.x()` continues to work). `Injector.get(...)` patterns are out of scope.

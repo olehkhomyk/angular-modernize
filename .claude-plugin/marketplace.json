@@ -7,8 +7,8 @@
     {
       "name": "angular-modernize",
       "source": "./",
-      "description": "Six mechanical Angular migrations triggered by natural language. One /modernize command runs all of them: subscribe object form, constructor DI to inject(), takeUntilDestroyed cleanup, signals (incl. @Input/@Output + paired HTML with two-way binding splits), and template control flow.",
-      "version": "1.2.0"
+      "description": "Six mechanical Angular migrations triggered by natural language. /modernize runs all of them with token-efficient one-pass execution per file.",
+      "version": "1.3.0"
     }
   ]
 }

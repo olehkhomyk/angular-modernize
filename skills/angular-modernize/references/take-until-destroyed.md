@@ -1,56 +1,35 @@
-# Operation: take-until-destroyed
+# take-until-destroyed
 
-Add `takeUntilDestroyed(this.destroyRef)` to every `.subscribe()` in the file so subscriptions clean up automatically.
+Add `takeUntilDestroyed(this.destroyRef)` to every `.subscribe()` in the file. Requires Angular v16+.
 
-Requires Angular **v16+**. Imported from `@angular/core/rxjs-interop`.
+## Rules per `.subscribe(...)`
 
-## Rules
+1. Pipe already contains `takeUntilDestroyed(this.destroyRef)` → leave alone.
+2. Pipe exists but lacks it → append `takeUntilDestroyed(this.destroyRef)` as the **last** operator.
+3. No pipe → insert `.pipe(takeUntilDestroyed(this.destroyRef))` immediately before `.subscribe(...)`.
 
-For every `.subscribe(...)` call in the file:
+Apply to ALL `.subscribe(` in the file.
 
-1. **Already has `takeUntilDestroyed(this.destroyRef)` in its `pipe()`** → do nothing.
-2. **Has a `pipe(...)` but not `takeUntilDestroyed`** → add `takeUntilDestroyed(this.destroyRef)` as the **last** operator inside that `pipe()`.
-3. **No `pipe(...)` before `.subscribe()`** → insert `.pipe(takeUntilDestroyed(this.destroyRef))` immediately before `.subscribe()`.
+## DestroyRef field
 
-Apply to **all** occurrences in the file. Do not stop after the first match.
+If the class lacks `inject(DestroyRef)` (under any name), add: `private destroyRef = inject(DestroyRef);`
 
-## DestroyRef injection
+Placement: append to the inject block (see `to-inject.md` § placement). If no inject block exists yet, the field goes directly above the constructor (or where it would be), after signals/computed/getters/setters.
 
-If the class does not already have `DestroyRef` injected, add:
+If a `DestroyRef` field already exists under a different name (e.g. `_destroyRef`), reuse that name in the `takeUntilDestroyed(this.<name>)` call.
 
-```ts
-private destroyRef = inject(DestroyRef);
-```
+## Skip
 
-Placement: append to the existing `inject(...)` block (see `to-inject.md` § 5). Concretely:
-
-1. If the class already has `inject(...)` fields, add `destroyRef` as the last field in that block.
-2. If the class has no `inject(...)` fields yet, place `destroyRef` directly above the constructor (or where the constructor would be if absent), after all signals / computed / getters / setters.
-3. Never interleave with plain fields, signals, computed, getters, or setters.
-
-Do not duplicate if `destroyRef` already exists under a different name (e.g. `_destroyRef`); use whatever name is already there in the `pipe(takeUntilDestroyed(this.<name>))` call.
+- `.subscribe(...)` outside a class instance context (static method, top-level): leave + TODO: `// TODO(ng-migrate): take-until-destroyed: not in class instance — manual review`.
+- Non-RxJS subscribes (EventEmitter, custom).
 
 ## Imports
-
-Ensure these are present (add if missing, do not duplicate):
 
 ```ts
 import { DestroyRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 ```
 
-## Do NOT
+## Final check
 
-- Refactor logic, rename variables, or change formatting unnecessarily.
-- Touch `.subscribe()` calls on non-RxJS sources (event emitters, custom subscribe methods).
-- Combine this operation with `.subscribe({...})` observer-object conversion — that's a separate operation (`subscribe-object-form`).
-
-## Edge cases
-
-- **Subscribe inside a constructor / `ngOnInit` / arrow function:** still applies — `this.destroyRef` only requires being inside a class instance method.
-- **Subscribe inside a static method or non-class context:** leave a `// TODO(ng-migrate): take-until-destroyed: not in class instance context — manual review needed` and skip.
-- **Subscribe chained off a method call, e.g. `this.svc.foo().subscribe(...)`:** still wrap with `.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(...)`.
-
-## Final assertion
-
-After the pass: zero `.subscribe(` occurrences in the file should be without an upstream `takeUntilDestroyed(this.destroyRef)` in their pipe (or a TODO comment).
+Zero `.subscribe(` calls in the file without an upstream `takeUntilDestroyed(this.destroyRef)` (or a TODO).

@@ -1,7 +1,7 @@
 {
   "name": "angular-modernize",
-  "description": "Six mechanical, behavior-preserving Angular migrations: subscribe object form, constructor DI to inject(), takeUntilDestroyed cleanup, signals (TS class fields + @Input/@Output + paired HTML with two-way binding splits), and new template control flow. One unified /modernize slash command; everything else triggers from natural language.",
-  "version": "1.2.0",
+  "description": "Six mechanical, behavior-preserving Angular migrations: subscribe object form, constructor DI to inject(), takeUntilDestroyed cleanup, signals (TS class fields + @Input/@Output + paired HTML with two-way binding splits), and new template control flow. Token-efficient one-pass execution.",
+  "version": "1.3.0",
   "author": {
     "name": "Oleh Khomyk"
   },

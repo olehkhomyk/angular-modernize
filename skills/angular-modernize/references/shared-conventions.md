@@ -1,66 +1,51 @@
 # Shared conventions
 
-Apply across all five operations.
+Cross-cutting rules. Keep brief — apply to every operation.
 
-## TODO comment format
+## TODO format
 
-When a transformation cannot be made safely, leave the original code in place and add a comment so the user can grep for it later.
+- TS: `// TODO(ng-migrate): <op>: <reason>`
+- HTML: `<!-- TODO(ng-migrate): <op>: <reason> -->`
 
-- TypeScript / JS: `// TODO(ng-migrate): <operation>: <reason>`
-- HTML template: `<!-- TODO(ng-migrate): <operation>: <reason> -->`
+`<op>` ∈ {`take-until-destroyed`, `subscribe-object-form`, `to-inject`, `signals-ts`, `signals-template`, `control-flow`}. `<reason>` is one short sentence.
 
-`<operation>` is one of: `take-until-destroyed`, `subscribe-object-form`, `signals-ts`, `signals-template`, `control-flow`.
+## Paired-file rule (signals only)
 
-`<reason>` is a short, concrete sentence — what is ambiguous and what a human should decide. Examples:
-- `// TODO(ng-migrate): signals-ts: in-place mutation of nested object — confirm intended write semantics`
-- `<!-- TODO(ng-migrate): control-flow: structural directive from third-party lib (cdkVirtualFor) — left as-is -->`
-
-After the run, list every file where TODOs were inserted in the summary.
-
-## Injection detection
-
-Before adding any `private foo = inject(Foo);` line, check if it already exists.
-
-- Search the class for `inject(<Type>)` — if found, do nothing.
-- Otherwise add the injection at the placement point defined by the operation.
-- Ensure `inject` is imported from `@angular/core`. Add the import if missing.
-
-## Paired-file resolution
-
-For `signals` (and only `signals`), when migrating a TS component file, locate the paired template:
-
-1. Same basename, `.html` extension, in the same directory.
-   `foo.component.ts` → `foo.component.html`
-2. If `templateUrl: '...'` is set in `@Component(...)`, resolve relative to the TS file.
-3. If `template: \`...\`` is inline, migrate the inline template string in place.
-4. If neither is found, skip the template step and note it in the summary: "no paired template found for `<file>`."
+For each `*.ts` migrated to signals, also migrate its template:
+1. Same basename `.html` next to the TS file.
+2. If `templateUrl` is set, resolve relative to the TS file.
+3. If `template:` inline, migrate the string in place.
+4. If none found, note "no paired template" and skip.
 
 ## Imports
 
-After every operation:
-- Remove imports from `@angular/core` (or other Angular packages) that are no longer referenced.
-- Add any imports the migration introduces (`signal`, `inject`, `DestroyRef`, `takeUntilDestroyed`).
-  - `takeUntilDestroyed` is imported from `@angular/core/rxjs-interop`.
-  - `signal`, `inject`, `DestroyRef` are imported from `@angular/core`.
+- Add as needed (from `@angular/core`): `signal`, `inject`, `input`, `output`, `computed`, `effect`, `DestroyRef`. From `@angular/core/rxjs-interop`: `takeUntilDestroyed`.
+- Remove `Input` / `Output` / `EventEmitter` if all decorators were converted and no other usages remain.
+- Never duplicate.
 
-## Angular version detection
+## Version detection
 
-Read `package.json` (walk up from the target if needed) and look at `dependencies['@angular/core']`. Strip a leading `^` or `~`, take the major version.
+Read `package.json` `dependencies['@angular/core']`. Strip `^`/`~`, take major. Skip these ops if version is too old:
+- `< 14`: `to-inject`
+- `< 16`: `take-until-destroyed`, `signals` (signal/computed)
+- `< 17.1`: `input()`/`output()` conversion (leave decorators)
+- `< 17`: `template-control-flow`
 
-- `< 17`: warn the user that template control flow (`@if` / `@for`) requires v17+. Ask before proceeding.
-- `< 16`: warn that `takeUntilDestroyed` and `DestroyRef` require v16+.
-- If `package.json` is unreachable, assume v17+ and note the assumption in the run summary.
+If `package.json` is unreachable, assume v17+ and note the assumption.
 
 ## File targeting
 
-- Single file → migrate that file only.
-- List of files → migrate each.
-- Folder → walk recursively. Apply each operation to applicable file types:
-  - `take-until-destroyed`, `subscribe-object-form`, `signals-ts` → `*.ts` (excluding `*.spec.ts` unless the user explicitly opts in)
-  - `signals-template`, `control-flow` → `*.html` (and inline templates inside `*.ts`)
-- Never expand to the whole project / cwd without an explicit target from the user.
+- Single file / list → those.
+- Folder → recurse; `*.ts` ops on `*.ts`, `*.html` ops on `*.html`. Skip `*.spec.ts` unless opted in.
+- Never expand to the whole project without an explicit target.
 
-## Output style
+## Execution model
 
-- Edit files directly with `Edit` or `Write`. Do not print migrated code into the chat.
-- Final message: a short list of changed files, count of TODOs inserted (with locations), and the verification-command prompt.
+**One pass per file.** Each file is read once and written once. Apply all in-scope transformations to the in-memory string before writing. Do NOT chain multiple `Edit` tool calls on the same file — that wastes tokens via repeated diagnostics.
+
+- Use `Read` once per file.
+- Apply all rules from the relevant reference(s) in memory.
+- Use `Write` once at the end with the final content.
+- The only exception: when the file is too large to safely include in a single `Write`, fall back to a minimal sequence of `Edit`s.
+
+After all files are written, produce **one** combined summary and **one** verification prompt — not per-operation summaries.
