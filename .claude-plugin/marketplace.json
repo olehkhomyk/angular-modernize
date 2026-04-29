@@ -7,8 +7,8 @@
     {
       "name": "angular-modernize",
       "source": "./",
-      "description": "Five mechanical Angular migrations: takeUntilDestroyed, modern subscribe form, signals (TS + paired HTML), and new template control flow.",
-      "version": "1.0.0"
+      "description": "Six mechanical Angular migrations with slash commands: to-subscribe, to-inject, to-cleanup, to-signals (TS + paired HTML), to-template (control flow), and modernize (all). Comma-separated chaining via /ng-migrate.",
+      "version": "1.1.0"
     }
   ]
 }

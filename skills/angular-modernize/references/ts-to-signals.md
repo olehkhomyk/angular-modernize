@@ -6,7 +6,9 @@ After running this on a `.ts` file, immediately run `signals-template` on the pa
 
 ## 1. Property declaration → signal
 
-For each plain class field with an initializer, convert it to a `signal<T>(initial)`:
+**Be aggressive: every plain stateful class field becomes a signal**, including fields without an initializer. Only fields in the skip list (1d) are left alone. After the pass, the only non-signal plain fields remaining must match the skip list.
+
+### 1a. Fields **with** an initializer
 
 ```ts
 property: string = 'someValue';   // → property = signal<string>('someValue');
@@ -16,10 +18,48 @@ items: Item[] = [];               // → items = signal<Item[]>([]);
 config = { enabled: true };       // → config = signal<{ enabled: boolean }>({ enabled: true });
 ```
 
-- Preserve the explicit type as the signal's generic argument when present.
+- Preserve the explicit type as the generic.
 - If no explicit type, infer from the initializer. Avoid `any` unless unavoidable.
-- Do **not** convert `readonly` fields, `static` fields, fields without initializers, fields decorated with `@Input()`, `@Output()`, `@ViewChild()`, `@ContentChild()`, fields already initialized via `inject(...)`, or fields that are already `signal(...)` / `computed(...)` / `input()` / `model()` / `output()` / `viewChild()`.
-- Do **not** convert getters/setters, methods, or arrow-function fields used as methods (`fn = () => {...}`).
+
+### 1b. Fields **without** an initializer (typed)
+
+These are still state — convert them. Use `signal<T | undefined>(undefined)` to preserve the original "uninitialized" semantics. **Do not** invent default values like `false`, `0`, or `''` — that changes runtime behavior.
+
+```ts
+data: any;                        // → data = signal<any>(undefined);
+form: UntypedFormGroup;           // → form = signal<UntypedFormGroup | undefined>(undefined);
+display: boolean;                 // → display = signal<boolean | undefined>(undefined);
+isAddDialog: boolean;             // → isAddDialog = signal<boolean | undefined>(undefined);
+dialogAdminId: string;            // → dialogAdminId = signal<string | undefined>(undefined);
+selectedRow: Row;                 // → selectedRow = signal<Row | undefined>(undefined);
+```
+
+- For `any`-typed fields, the union is redundant — use `signal<any>(undefined)`.
+- Definite-assignment fields (`field!: T`) follow the same rule: drop the `!`, use `signal<T | undefined>(undefined)`.
+
+### 1c. Untyped fields without an initializer (rare)
+
+```ts
+mystery;                          // ← cannot infer type
+```
+
+Leave as-is and add:
+`// TODO(ng-migrate): signals-ts: cannot infer type for uninitialized untyped field — manual review`
+
+### 1d. Skip list — do **NOT** convert these
+
+- Fields decorated with `@Input()`, `@Output()`, `@ViewChild()`, `@ViewChildren()`, `@ContentChild()`, `@ContentChildren()`, `@HostBinding()`.
+- Fields already in signal-form: `signal(...)`, `computed(...)`, `input(...)`, `input.required(...)`, `model(...)`, `output(...)`, `viewChild(...)`, `viewChildren(...)`, `contentChild(...)`, `toSignal(...)`.
+- Fields whose initializer is `inject(...)`.
+- `readonly` fields and `static` fields.
+- Subjects / observables: `Subject`, `BehaviorSubject`, `ReplaySubject`, `AsyncSubject`, `Observable` (and subclasses). They are reactive primitives already.
+- Method-like fields: getters, setters, methods, arrow-function method fields (`fn = () => {...}`, `fn: (x: T) => U = ...`).
+- **Function-reference aliases** (a frequent miss): a field whose declared type is a function signature, OR whose initializer is a bare identifier that resolves to a function. Example:
+  ```ts
+  insertSpacesInCamelCaseWords: (item: string) => any = insertSpacesInCamelCaseWords;
+  ```
+  This is a method alias, not state. Skip.
+- Constructor-injected fields written as `constructor(private foo: Foo) {}` — those are not regular class fields and are handled by the separate `to-inject` operation.
 
 ## 2. Naming
 
@@ -110,3 +150,20 @@ Do **not** convert these — they are already reactive primitives or framework h
 - Every former direct write is `.set` or `.update`.
 - No mutations on the inner value of a signal remain.
 - Paired template was queued for `signals-template`.
+
+## Coverage check (mandatory before finishing)
+
+After editing, scan the class body for any remaining plain field declarations of the form:
+- `<name>: <Type>;`
+- `<name>: <Type> = <value>;`
+- `<name> = <value>;`
+- `<name>!: <Type>;`
+
+For each one found, it MUST match one of the skip-list categories in 1d. If you find a plain stateful field that doesn't match the skip list, you missed it — go back and convert it. **Do not finish the operation until every non-skip-list field is a signal.**
+
+Common fields that get accidentally missed (always convert these unless decorated/injected):
+- form group / form control fields (`form: FormGroup;`, `form: UntypedFormGroup;`)
+- dialog / display flags (`display: boolean;`, `visible: boolean;`, `isOpen: boolean;`)
+- selected-state fields (`selectedX: T;`, `currentY: T;`)
+- IDs / strings (`dialogId: string;`, `userId: number;`)
+- generic data containers (`data: any;`, `rows: T[];`)

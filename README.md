@@ -1,20 +1,19 @@
 # angular-modernize
 
-A Claude Code **plugin** that performs five mechanical, behavior-preserving Angular migrations from legacy patterns to modern (v17–v18+) idioms.
+A Claude Code **plugin** that performs six mechanical, behavior-preserving Angular migrations from legacy patterns to modern (v17–v18+) idioms.
 
-## What it does
-
-Five operations, each invokable on its own or together as `modernize`:
+## Operations
 
 | Operation                | What it does                                                                 | File types          |
 | ------------------------ | ---------------------------------------------------------------------------- | ------------------- |
-| `take-until-destroyed`   | Adds `takeUntilDestroyed(this.destroyRef)` to every `.subscribe()`. Injects `DestroyRef` if needed. | `*.ts`              |
-| `subscribe-object-form`  | Converts deprecated `subscribe(next, error, complete)` → `subscribe({ next, error, complete })`. | `*.ts`              |
-| `signals`                | Converts class fields to signals and updates every read/write site, plus the paired template.    | `*.ts` + paired `*.html` |
-| `template-control-flow`  | `*ngIf`/`*ngFor`/`[ngSwitch]` → `@if`/`@for`/`@switch`.                      | `*.html`            |
-| `modernize` (combo)      | Runs all four in order: subscribe-object-form → take-until-destroyed → signals → control-flow. | both                |
+| `to-subscribe`           | Converts deprecated `subscribe(next, error, complete)` → `subscribe({ next, error, complete })`. | `*.ts` |
+| `to-inject`              | Constructor parameter DI (`private foo: Foo`) → `private foo = inject(Foo)`. | `*.ts`              |
+| `to-cleanup`             | Adds `takeUntilDestroyed(this.destroyRef)` to every `.subscribe()`. Injects `DestroyRef` if needed. | `*.ts` |
+| `to-signals`             | Class fields → `signal()` (including uninitialized fields), with paired-template `()` updates.   | `*.ts` + paired `*.html` |
+| `to-template`            | `*ngIf`/`*ngFor`/`[ngSwitch]` → `@if`/`@for`/`@switch`.                      | `*.html`            |
+| `modernize`              | Runs all five in canonical order: subscribe → inject → cleanup → signals → template. | both                |
 
-## Install (recommended) — one-line plugin install
+## Install — one-line plugin install
 
 Inside Claude Code:
 
@@ -22,8 +21,6 @@ Inside Claude Code:
 /plugin marketplace add olehkhomyk/angular-modernize
 /plugin install angular-modernize@angular-modernize
 ```
-
-That's it. The skill is now active in every session.
 
 To update later:
 ```
@@ -35,56 +32,88 @@ To uninstall:
 /plugin uninstall angular-modernize
 ```
 
-## Install — alternative (manual clone, no plugin manager)
+> Requires Claude Code recent enough to support marketplace installs (Node 20+). If you hit *"This plugin uses a source type your Claude Code version does not support"*, update Claude Code: `npm i -g @anthropic-ai/claude-code@latest`.
 
-If you don't want to use the plugin system, clone the **inner** skill folder directly into your skills directory:
+## Install — manual fallback (no plugin manager)
 
-```bash
-git clone https://github.com/olehkhomyk/angular-modernize.git /tmp/angular-modernize
-cp -r /tmp/angular-modernize/skills/angular-modernize ~/.claude/skills/angular-modernize
-```
+Copy or symlink the inner skill folder into your skills directory:
 
-Or as a one-liner symlink (so `git pull` keeps it updated):
 ```bash
 git clone https://github.com/olehkhomyk/angular-modernize.git ~/code/angular-modernize
 ln -s ~/code/angular-modernize/skills/angular-modernize ~/.claude/skills/angular-modernize
 ```
 
-## Usage
+This path doesn't get the slash commands — only the skill itself. For commands, install via the plugin manager.
 
-The skill triggers on natural language. **You must always name a target** — a file, a list of files, or a folder. The skill will refuse to run on the whole project without an explicit target.
+## Usage — slash commands
+
+Each operation has its own command. **All commands require a target** — file, list of files, or folder. They refuse to run on the whole project without an explicit target.
 
 ```text
-# single operation, single file
-"Migrate src/app/user/user.component.ts to signals"
-"Add takeUntilDestroyed to src/app/api.service.ts"
-"Convert *ngIf to @if in src/app/dashboard/dashboard.component.html"
-"Migrate subscribe calls in src/app/api.service.ts to the object form"
-
-# whole folder
-"Modernize everything under src/app/users/"
-
-# combo on one file
-"Modernize src/app/user/user.component.ts"
+/to-signals     src/app/user/user.component.ts
+/to-subscribe   src/app/api.service.ts
+/to-cleanup     src/app/api.service.ts
+/to-inject      src/app/user/user.component.ts
+/to-template    src/app/dashboard/dashboard.component.html
+/modernize      src/app/users/
 ```
 
-When you say "to signals" on a `.ts` file, the skill will also migrate the paired `.html` template (same basename, same folder, or whatever `templateUrl` resolves to) so signal reads use `()` in the template.
+### Comma-separated chaining via `/ng-migrate`
 
-## What it will NOT do
+Run multiple operations in one shot:
+
+```text
+/ng-migrate to-signals,to-template src/app/foo.component.ts
+/ng-migrate to-subscribe,to-cleanup,to-inject src/app/services/
+/ng-migrate modernize src/app/users/
+```
+
+Operations always run in the safe canonical order regardless of how you list them: `to-subscribe → to-inject → to-cleanup → to-signals → to-template`.
+
+## Usage — natural language
+
+The skill also triggers on natural language without commands:
+
+```text
+"Migrate src/app/user/user.component.ts to signals"
+"Convert constructor injection to inject() in src/app/api.service.ts"
+"Add takeUntilDestroyed to src/app/user/"
+"Convert *ngIf to @if in src/app/dashboard/"
+"Modernize src/app/users/"
+```
+
+When you say "to signals" on a `.ts` file, the skill auto-locates and migrates the paired `.html` template (or inline `template:`) so signal reads use `()`.
+
+## Coverage guarantee for `to-signals`
+
+Every plain stateful class field becomes a signal — including fields without initializers. Uninitialized typed fields become `signal<T | undefined>(undefined)` to preserve "uninitialized" semantics. The skip list is small and explicit:
+
+- decorator-bound fields (`@Input`, `@Output`, `@ViewChild`, etc.)
+- already-signal forms (`signal()`, `computed()`, `input()`, `model()`, `viewChild()`, `toSignal()`, …)
+- `inject(...)` initializers
+- `readonly` / `static`
+- `Subject` / `BehaviorSubject` / `Observable` (already reactive)
+- methods, getters, setters, function-reference aliases
+
+Each `to-signals` run ends with a mandatory coverage check — if any non-skip-list field is left as a plain field, the skill fixes it before reporting done.
+
+## What the skill will NOT do
 
 - Run on the whole project / cwd without you naming a target.
 - Refactor logic, rename variables, or reformat code.
 - Touch third-party structural directives (`*cdkVirtualFor`, `*matRowDef`, `*ngrxLet`, …).
 - Add `@defer` blocks unless you explicitly mark a region.
 - Run a build or typecheck without asking you first.
+- Convert constructor parameters that lack an access modifier (those are local-only).
+- Convert subscribes on non-RxJS sources (event emitters, custom subscribe).
 
 ## Verification
 
-After each operation finishes, the skill will ask whether to run a verification command (it tries to detect `typecheck`/`build`/`lint` from your `package.json` scripts; otherwise it asks). You can always say no.
+After each operation, the skill asks whether to run a verification command (it auto-detects `typecheck`/`build`/`lint` from `package.json` scripts; otherwise it asks). You can always say no.
 
 ## Unsafe / ambiguous transformations
 
-If the skill cannot make a transformation safely (e.g. a deeply nested in-place mutation, a `subscribe` on something that may or may not be RxJS, an `*ngIf` with an unusual third-party directive), it leaves the original code in place and inserts a comment in this format:
+When a transformation can't be made safely, the skill leaves the original code in place and inserts a comment:
 
 ```ts
 // TODO(ng-migrate): <operation>: <reason>
@@ -95,31 +124,44 @@ If the skill cannot make a transformation safely (e.g. a deeply nested in-place 
 
 Grep for `TODO(ng-migrate)` after a run to find them.
 
-## Angular version
+## Angular version requirements
 
-The skill checks `package.json` for `@angular/core`. If it's older than the version a given operation requires (e.g. `@if`/`@for` need v17+, `takeUntilDestroyed` needs v16+), it warns before running.
+- `to-inject` — v14+ (recommended v16+)
+- `to-cleanup` — v16+
+- `to-signals` — v16+
+- `to-template` — v17+
+- `to-subscribe` — any modern RxJS version
+
+The skill reads `package.json` for `@angular/core` and warns before running anything that requires a newer version.
 
 ## Repository layout
 
 ```
-angular-modernize/                          # repo root = marketplace root
+angular-modernize/
 ├── .claude-plugin/
-│   ├── plugin.json                         # plugin metadata
-│   └── marketplace.json                    # makes this repo its own marketplace
+│   ├── plugin.json
+│   └── marketplace.json
 ├── README.md
+├── commands/                                   # slash commands
+│   ├── to-signals.md
+│   ├── to-subscribe.md
+│   ├── to-cleanup.md
+│   ├── to-inject.md
+│   ├── to-template.md
+│   ├── modernize.md
+│   └── ng-migrate.md
 └── skills/
-    └── angular-modernize/                  # the actual skill
-        ├── SKILL.md                        # router and rules
+    └── angular-modernize/
+        ├── SKILL.md
         └── references/
-            ├── shared-conventions.md       # TODO format, paired-file rule, version detection
+            ├── shared-conventions.md
             ├── take-until-destroyed.md
             ├── subscribe-object-form.md
+            ├── to-inject.md
             ├── ts-to-signals.md
             ├── template-to-signals.md
             └── template-control-flow.md
 ```
-
-`SKILL.md` is the only file Claude reads up front — it routes to the relevant reference file(s) based on what you asked for.
 
 ## License
 
