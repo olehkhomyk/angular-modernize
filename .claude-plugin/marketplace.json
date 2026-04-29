@@ -6,11 +6,9 @@
   "plugins": [
     {
       "name": "angular-modernize",
-      "source": ".",
-      "description": "Five mechanical, behavior-preserving Angular migrations: takeUntilDestroyed cleanup, modern subscribe observer-object form, signals (TS + paired HTML), and new template control flow (@if / @for / @switch).",
-      "version": "1.0.0",
-      "category": "development",
-      "tags": ["angular", "migration", "signals", "rxjs", "refactor"]
+      "source": "./",
+      "description": "Five mechanical Angular migrations: takeUntilDestroyed, modern subscribe form, signals (TS + paired HTML), and new template control flow.",
+      "version": "1.0.0"
     }
   ]
 }
