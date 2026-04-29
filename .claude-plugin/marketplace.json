@@ -1,0 +1,16 @@
+{
+  "name": "angular-modernize",
+  "owner": {
+    "name": "Oleh Khomyk"
+  },
+  "plugins": [
+    {
+      "name": "angular-modernize",
+      "source": ".",
+      "description": "Five mechanical, behavior-preserving Angular migrations: takeUntilDestroyed cleanup, modern subscribe observer-object form, signals (TS + paired HTML), and new template control flow (@if / @for / @switch).",
+      "version": "1.0.0",
+      "category": "development",
+      "tags": ["angular", "migration", "signals", "rxjs", "refactor"]
+    }
+  ]
+}

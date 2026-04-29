@@ -1,6 +1,6 @@
 # angular-modernize
 
-A Claude Code skill that performs five mechanical, behavior-preserving Angular migrations from legacy patterns to modern (v17–v18+) idioms.
+A Claude Code **plugin** that performs five mechanical, behavior-preserving Angular migrations from legacy patterns to modern (v17–v18+) idioms.
 
 ## What it does
 
@@ -14,19 +14,41 @@ Five operations, each invokable on its own or together as `modernize`:
 | `template-control-flow`  | `*ngIf`/`*ngFor`/`[ngSwitch]` → `@if`/`@for`/`@switch`.                      | `*.html`            |
 | `modernize` (combo)      | Runs all four in order: subscribe-object-form → take-until-destroyed → signals → control-flow. | both                |
 
-## Install
+## Install (recommended) — one-line plugin install
 
-Clone (or copy) the `angular-modernize/` folder into your skills directory:
+Inside Claude Code:
 
-```bash
-# personal install
-cp -r angular-modernize ~/.claude/skills/
-
-# or as part of a project's local skills
-cp -r angular-modernize <project>/.claude/skills/
+```
+/plugin marketplace add olehkhomyk/angular-modernize
+/plugin install angular-modernize@angular-modernize
 ```
 
-Restart Claude Code or open a new session — the skill is auto-discovered from `SKILL.md`.
+That's it. The skill is now active in every session.
+
+To update later:
+```
+/plugin marketplace update angular-modernize
+```
+
+To uninstall:
+```
+/plugin uninstall angular-modernize
+```
+
+## Install — alternative (manual clone, no plugin manager)
+
+If you don't want to use the plugin system, clone the **inner** skill folder directly into your skills directory:
+
+```bash
+git clone https://github.com/olehkhomyk/angular-modernize.git /tmp/angular-modernize
+cp -r /tmp/angular-modernize/skills/angular-modernize ~/.claude/skills/angular-modernize
+```
+
+Or as a one-liner symlink (so `git pull` keeps it updated):
+```bash
+git clone https://github.com/olehkhomyk/angular-modernize.git ~/code/angular-modernize
+ln -s ~/code/angular-modernize/skills/angular-modernize ~/.claude/skills/angular-modernize
+```
 
 ## Usage
 
@@ -77,19 +99,24 @@ Grep for `TODO(ng-migrate)` after a run to find them.
 
 The skill checks `package.json` for `@angular/core`. If it's older than the version a given operation requires (e.g. `@if`/`@for` need v17+, `takeUntilDestroyed` needs v16+), it warns before running.
 
-## Layout
+## Repository layout
 
 ```
-angular-modernize/
-├── SKILL.md                              # router and rules
-├── README.md                             # this file
-└── references/
-    ├── shared-conventions.md             # TODO format, paired-file rule, version detection
-    ├── take-until-destroyed.md
-    ├── subscribe-object-form.md
-    ├── ts-to-signals.md
-    ├── template-to-signals.md
-    └── template-control-flow.md
+angular-modernize/                          # repo root = marketplace root
+├── .claude-plugin/
+│   ├── plugin.json                         # plugin metadata
+│   └── marketplace.json                    # makes this repo its own marketplace
+├── README.md
+└── skills/
+    └── angular-modernize/                  # the actual skill
+        ├── SKILL.md                        # router and rules
+        └── references/
+            ├── shared-conventions.md       # TODO format, paired-file rule, version detection
+            ├── take-until-destroyed.md
+            ├── subscribe-object-form.md
+            ├── ts-to-signals.md
+            ├── template-to-signals.md
+            └── template-control-flow.md
 ```
 
 `SKILL.md` is the only file Claude reads up front — it routes to the relevant reference file(s) based on what you asked for.
