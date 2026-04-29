@@ -46,9 +46,57 @@ mystery;                          // ← cannot infer type
 Leave as-is and add:
 `// TODO(ng-migrate): signals-ts: cannot infer type for uninitialized untyped field — manual review`
 
-### 1d. Skip list — do **NOT** convert these
+### 1d. `@Input()` → `input<T>()` / `input.required<T>()`
 
-- Fields decorated with `@Input()`, `@Output()`, `@ViewChild()`, `@ViewChildren()`, `@ContentChild()`, `@ContentChildren()`, `@HostBinding()`.
+Convert decorator-based inputs to the new signal-input form. **Skip-with-TODO** when the input type is a form reference (see exceptions).
+
+```ts
+@Input() name: string;                            // → name = input<string>();
+@Input() name: string = 'default';                // → name = input<string>('default');
+@Input() count: number = 0;                       // → count = input<number>(0);
+@Input({ required: true }) id: string;            // → id = input.required<string>();
+@Input({ alias: 'externalName' }) name: string;   // → name = input<string>(undefined, { alias: 'externalName' });
+@Input({ transform: numberAttribute }) n: number; // → n = input<number>(undefined, { transform: numberAttribute });
+```
+
+- Preserve the property name and the type as the generic.
+- Required form (`@Input({ required: true })`) → `input.required<T>()` (no default).
+- Options like `alias`, `transform` are forwarded as the second argument.
+- Optional inputs without a default keep the type as-is — `input<T>()` returns a `Signal<T | undefined>` automatically; do NOT add `| undefined` to the generic.
+- Setter-style `@Input set foo(v: T) { ... }` patterns are NOT auto-converted. Leave the original setter and add:
+  `// TODO(ng-migrate): signals-ts: @Input setter — manual review (consider input() + effect() or computed())`
+
+#### Exception: form-reference inputs (skip with TODO)
+
+Do NOT convert `@Input()` whose type extends/is one of:
+- `FormGroup`, `UntypedFormGroup`
+- `FormControl`, `UntypedFormControl`
+- `FormArray`, `UntypedFormArray`
+- `AbstractControl`, `UntypedAbstractControl`
+
+Leave the legacy `@Input()` decorator and add:
+`// TODO(ng-migrate): signals-ts: @Input is a form reference — left as decorator input (manual review for signal conversion)`
+
+Reason: passing a form instance is a reference handoff and the parent often binds to the same instance for two-way state; converting blindly to `input()` can change identity semantics and break parent bindings.
+
+### 1e. `@Output()` → `output<T>()`
+
+Convert decorator-based outputs to the new function form.
+
+```ts
+@Output() saved = new EventEmitter<User>();         // → saved = output<User>();
+@Output() closed = new EventEmitter<void>();        // → closed = output<void>();
+@Output('savedEvent') saved = new EventEmitter<User>();
+// → saved = output<User>({ alias: 'savedEvent' });
+```
+
+- The new `output()` does not extend `EventEmitter`, but it preserves `.emit(value)` — call sites like `this.saved.emit(user)` keep working unchanged.
+- Skip and TODO when the field is used in code paths that rely on `EventEmitter`-specific APIs (`.subscribe(...)`, `.pipe(...)`, casting to `Observable`):
+  `// TODO(ng-migrate): signals-ts: @Output is consumed as an Observable — manual review`
+
+### 1f. Skip list — do **NOT** convert these
+
+- Fields decorated with `@ViewChild()`, `@ViewChildren()`, `@ContentChild()`, `@ContentChildren()`, `@HostBinding()`. (These have signal-form equivalents — `viewChild()`, `contentChild()` — but auto-migration is not in scope here.)
 - Fields already in signal-form: `signal(...)`, `computed(...)`, `input(...)`, `input.required(...)`, `model(...)`, `output(...)`, `viewChild(...)`, `viewChildren(...)`, `contentChild(...)`, `toSignal(...)`.
 - Fields whose initializer is `inject(...)`.
 - `readonly` fields and `static` fields.
@@ -125,23 +173,37 @@ this.config.enabled = true;
 If a mutation is too complex to confidently convert (e.g. deep nested mutation, mutation passed to a library), leave the original line and add:
 `// TODO(ng-migrate): signals-ts: in-place mutation — manual review`
 
-## 7. Imports
+## 7. Two-way bindings (`[(prop)]="x"`) — do NOT skip
 
-Ensure `signal` is imported from `@angular/core`. Add if missing. Remove unused imports introduced by deleted plain fields, if any.
+If a field is two-way bound in the paired template (`[(visible)]="display"`, `[(ngModel)]="value"`, etc.), convert the field to a signal anyway. The paired-template pass will split the two-way binding into one-way + event handler. Do not leave a TODO for this case.
 
-```ts
-import { signal } from '@angular/core';
+The split (handled in `template-to-signals.md`) looks like:
+```html
+<!-- before -->
+[(visible)]="display"
+<!-- after -->
+[visible]="display()" (visibleChange)="display.set($event)"
 ```
 
-If `computed` / `effect` are needed by transformations, import those too.
+Special case: `[(ngModel)]` on a form-control that's bound to a primitive field. Same rule — convert the field, split the binding to `[ngModel]="x()" (ngModelChange)="x.set($event)"`. (If the field is a form group/control reference, it's already in the @Input skip list above.)
 
-## 8. Don't break framework features
+## 8. Imports
 
-Do **not** convert these — they are already reactive primitives or framework hooks:
-- Fields assigned via `input()`, `model()`, `output()`, `viewChild()`, `contentChild()`, `signal()`, `computed()`, `toSignal()`.
-- `@Input()` / `@Output()` decorated fields (legacy decorator-based I/O).
+Ensure the right imports from `@angular/core`:
+- `signal` — always when fields are converted
+- `input`, `output` — when `@Input()` / `@Output()` are converted
+- `computed`, `effect` — only if transformations introduce them
+
+Remove unused imports introduced by deleted plain fields. Specifically: if all `@Input()` decorators were converted to `input()`, remove `Input` from the `@angular/core` import. Same for `Output` and `EventEmitter` (the latter only if no remaining usage).
+
+## 9. Don't break framework features
+
+Do **not** apply the plain-field conversion to these (they're handled separately or are already reactive):
+- Fields already assigned via `input()`, `model()`, `output()`, `viewChild()`, `contentChild()`, `signal()`, `computed()`, `toSignal()`.
 - Fields whose initializer comes from `inject(...)`.
-- Static or `readonly` fields.
+- `static` and `readonly` fields.
+
+`@Input()` / `@Output()` are NOT skipped — they're converted via sections 1d and 1e. The exception is form-reference inputs (FormGroup/FormControl/AbstractControl), which get a TODO instead.
 
 ## Validation checklist
 

@@ -1,6 +1,6 @@
-# Operation: signals-template (HTML reads → call form)
+# Operation: signals-template (HTML reads → call form, two-way bindings → split)
 
-After a TS file has been migrated to signals, its template needs every read of those signals to be a function call (`property` → `property()`). This pass is **read-only** — do not introduce `.set()` or `.update()` calls in templates.
+After a TS file has been migrated to signals, its template needs every read of those signals to be a function call (`property` → `property()`). This pass is mostly read-only with one exception: two-way bindings (`[(prop)]="x"`) are split into a one-way bind + event handler so the signal can be `.set(...)` from the template.
 
 ## Inputs
 
@@ -31,12 +31,35 @@ In nested expressions, every read of a signal must become a call:
 {{ user.name + ' ' + user.title }}    <!-- if `user` is a signal: → {{ user().name + ' ' + user().title }} -->
 ```
 
+## Two-way bindings — split into one-way + event
+
+If a signal-backed property is bound via two-way `[(prop)]="x"`, split it into a one-way read + an event setter. Do this for every two-way binding pointing at a signal:
+
+```html
+<!-- before -->
+[(visible)]="display"
+[(checked)]="isChecked"
+[(value)]="amount"
+[(ngModel)]="text"
+
+<!-- after -->
+[visible]="display()"   (visibleChange)="display.set($event)"
+[checked]="isChecked()" (checkedChange)="isChecked.set($event)"
+[value]="amount()"      (valueChange)="amount.set($event)"
+[ngModel]="text()"      (ngModelChange)="text.set($event)"
+```
+
+Rule: `[(name)]="x"` becomes `[name]="x()" (nameChange)="x.set($event)"`. The event name is always `<name>Change` (Angular's two-way binding convention). Preserve attribute order: place the new `(<name>Change)` immediately after the new `[<name>]`.
+
+If `x` is a non-signal field (skipped in the TS pass for some reason), leave the two-way binding intact and add:
+`<!-- TODO(ng-migrate): signals-template: two-way binding on non-signal field '<x>' — manual review -->`
+
 ## Do NOT
 
 - Add `()` to method calls — methods already use `()`. Only convert plain identifier reads.
 - Add `()` to event handlers like `(click)="doThing()"` — those are method calls.
 - Convert reads inside event handler **arguments** unless the identifier is a signal: `(click)="save(prop)"` → `(click)="save(prop())"` only when `prop` is a signal.
-- Add `.set(...)` / `.update(...)` calls to the template (banana-in-a-box `[(ngModel)]` and similar should be left alone — it's a different migration).
+- Add `.set(...)` / `.update(...)` calls to the template **except** for the two-way binding split rule above.
 - Convert template reference variables like `#myInput`, `let-x`, `let i = $index` — those are template-local, not signals.
 - Convert local template variables introduced by `*ngFor`, `@for`, `@if (... ; as v)`, etc.
 - Convert pipes (`{{ prop | uppercase }}`) — convert only the input: `{{ prop() | uppercase }}`.

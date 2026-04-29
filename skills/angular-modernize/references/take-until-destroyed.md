@@ -22,10 +22,11 @@ If the class does not already have `DestroyRef` injected, add:
 private destroyRef = inject(DestroyRef);
 ```
 
-Placement (first match wins):
-1. Immediately after the last existing `inject(...)` property if any.
-2. Otherwise after the last property / signal / computed / getter declaration.
-3. Otherwise immediately before the first method in the class.
+Placement: append to the existing `inject(...)` block (see `to-inject.md` § 5). Concretely:
+
+1. If the class already has `inject(...)` fields, add `destroyRef` as the last field in that block.
+2. If the class has no `inject(...)` fields yet, place `destroyRef` directly above the constructor (or where the constructor would be if absent), after all signals / computed / getters / setters.
+3. Never interleave with plain fields, signals, computed, getters, or setters.
 
 Do not duplicate if `destroyRef` already exists under a different name (e.g. `_destroyRef`); use whatever name is already there in the `pipe(takeUntilDestroyed(this.<name>))` call.
 

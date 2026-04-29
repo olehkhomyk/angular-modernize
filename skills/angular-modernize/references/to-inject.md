@@ -107,13 +107,55 @@ After moving all eligible parameters out:
 - If `super(...)` is called with arguments that came from the constructor parameters, leave those parameters in the signature and do not convert them. Add:
   `// TODO(ng-migrate): to-inject: parameter <name> is forwarded to super(...) — manual review`
 
-### 5. Field placement
+### 5. Field placement (strict)
 
-Order:
-1. If the class already has `inject(...)` fields, append the new ones immediately after the last existing one.
-2. Otherwise, place the block of new `inject(...)` fields just above the constructor (or, if the constructor is being removed, just above the first method).
-3. Preserve relative order of injected services (same order as in the original constructor parameter list).
-4. Do not interleave with non-inject fields. The injected fields form one contiguous block.
+The block of `inject(...)` fields goes **at the constructor's position** — i.e. directly above the constructor if it still exists, or exactly where the constructor used to be if it was removed. They come **after** all of the following, in this order:
+
+1. Plain class fields and signal fields (`signal()`, `input()`, `input.required()`, `model()`, `output()`, `viewChild()`, `contentChild()`, `toSignal()`).
+2. `computed(...)` fields.
+3. Getters (`get foo() { ... }`) and setters (`set foo(v) { ... }`).
+4. Any pre-existing `inject(...)` fields the user had — new injections append directly after these as a single contiguous block.
+5. **The injected block goes here, just above where the constructor sits (or sat).**
+6. Constructor (if it still exists).
+7. Methods (`ngOnInit`, `ngOnChanges`, custom methods, etc.).
+
+Concretely, after migration the class body should look like:
+
+```ts
+export class Foo extends Bar {
+  // (1) signals / inputs / outputs / viewChild / etc.
+  loading = signal<boolean>(true);
+  count = input<number>(0);
+  saved = output<User>();
+
+  // (2) computed
+  total = computed(() => this.count() * 2);
+
+  // (3) getters / setters
+  get isReady() { return this.loading() === false; }
+
+  // (4) + (5) inject block (new + pre-existing, in original parameter order)
+  private fooSvc = inject(FooService);
+  private barSvc = inject(BarService);
+  private destroyRef = inject(DestroyRef);
+
+  // (6) constructor (only if body has logic; otherwise removed)
+  constructor() {
+    super();
+    this.initForm();
+  }
+
+  // (7) methods
+  ngOnInit() { ... }
+  doThing() { ... }
+}
+```
+
+Rules:
+- Preserve the relative order of injected services — same order as the original constructor parameter list.
+- Do not interleave inject fields with non-inject fields. The block must be contiguous.
+- If `take-until-destroyed` adds `destroyRef = inject(DestroyRef)` later, it appends to the end of the same block.
+- If the class has NO constructor (it was removed because the body was empty), the inject block goes directly between getters/setters (group 3) and methods (group 7).
 
 ### 6. Imports
 

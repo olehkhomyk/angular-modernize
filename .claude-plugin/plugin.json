@@ -1,12 +1,12 @@
 {
   "name": "angular-modernize",
-  "description": "Six mechanical, behavior-preserving Angular migrations: subscribe object form, constructor DI to inject(), takeUntilDestroyed cleanup, signals (TS + paired HTML), and new template control flow. Slash commands and comma-separated chaining included.",
-  "version": "1.1.0",
+  "description": "Six mechanical, behavior-preserving Angular migrations: subscribe object form, constructor DI to inject(), takeUntilDestroyed cleanup, signals (TS class fields + @Input/@Output + paired HTML with two-way binding splits), and new template control flow. One unified /modernize slash command; everything else triggers from natural language.",
+  "version": "1.2.0",
   "author": {
     "name": "Oleh Khomyk"
   },
   "homepage": "https://github.com/olehkhomyk/angular-modernize",
   "repository": "https://github.com/olehkhomyk/angular-modernize",
   "license": "MIT",
-  "keywords": ["angular", "migration", "signals", "control-flow", "takeUntilDestroyed", "rxjs", "inject"]
+  "keywords": ["angular", "migration", "signals", "control-flow", "takeUntilDestroyed", "rxjs", "inject", "input", "output"]
 }

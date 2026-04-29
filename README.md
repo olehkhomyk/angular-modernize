@@ -4,14 +4,14 @@ A Claude Code **plugin** that performs six mechanical, behavior-preserving Angul
 
 ## Operations
 
-| Operation                | What it does                                                                 | File types          |
-| ------------------------ | ---------------------------------------------------------------------------- | ------------------- |
-| `to-subscribe`           | Converts deprecated `subscribe(next, error, complete)` → `subscribe({ next, error, complete })`. | `*.ts` |
-| `to-inject`              | Constructor parameter DI (`private foo: Foo`) → `private foo = inject(Foo)`. | `*.ts`              |
-| `to-cleanup`             | Adds `takeUntilDestroyed(this.destroyRef)` to every `.subscribe()`. Injects `DestroyRef` if needed. | `*.ts` |
-| `to-signals`             | Class fields → `signal()` (including uninitialized fields), with paired-template `()` updates.   | `*.ts` + paired `*.html` |
-| `to-template`            | `*ngIf`/`*ngFor`/`[ngSwitch]` → `@if`/`@for`/`@switch`.                      | `*.html`            |
-| `modernize`              | Runs all five in canonical order: subscribe → inject → cleanup → signals → template. | both                |
+| Operation                | What it does                                                                                          | File types          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------- |
+| `subscribe-object-form`  | Deprecated `subscribe(next, error, complete)` → `subscribe({ next, error, complete })`.               | `*.ts`              |
+| `to-inject`              | Constructor parameter DI (`private foo: Foo`) → `private foo = inject(Foo)`. Block placed at the constructor's position, after signals/computed/getters. | `*.ts` |
+| `take-until-destroyed`   | Adds `takeUntilDestroyed(this.destroyRef)` to every `.subscribe()`. Injects `DestroyRef` if needed.   | `*.ts`              |
+| `signals` (TS + HTML)    | Class fields → `signal()` (covers uninitialized fields). `@Input()` → `input()` / `input.required()`. `@Output()` → `output()`. Paired template gets `()` reads and two-way bindings split into `[prop]` + `(propChange)`. FormGroup/FormControl `@Input`s left as TODO. | `*.ts` + paired `*.html` |
+| `template-control-flow`  | `*ngIf`/`*ngFor`/`[ngSwitch]` → `@if`/`@for`/`@switch`.                                              | `*.html`            |
+| **`/modernize`** (combo) | Runs all five above in canonical order: subscribe → inject → cleanup → signals → control-flow.        | both                |
 
 ## Install — one-line plugin install
 
@@ -43,59 +43,82 @@ git clone https://github.com/olehkhomyk/angular-modernize.git ~/code/angular-mod
 ln -s ~/code/angular-modernize/skills/angular-modernize ~/.claude/skills/angular-modernize
 ```
 
-This path doesn't get the slash commands — only the skill itself. For commands, install via the plugin manager.
+This path doesn't get the `/modernize` slash command — only the skill itself. For the command, install via the plugin manager.
 
-## Usage — slash commands
+## Usage
 
-Each operation has its own command. **All commands require a target** — file, list of files, or folder. They refuse to run on the whole project without an explicit target.
-
-```text
-/to-signals     src/app/user/user.component.ts
-/to-subscribe   src/app/api.service.ts
-/to-cleanup     src/app/api.service.ts
-/to-inject      src/app/user/user.component.ts
-/to-template    src/app/dashboard/dashboard.component.html
-/modernize      src/app/users/
-```
-
-### Comma-separated chaining via `/ng-migrate`
-
-Run multiple operations in one shot:
+There is **one slash command** for the all-in combo:
 
 ```text
-/ng-migrate to-signals,to-template src/app/foo.component.ts
-/ng-migrate to-subscribe,to-cleanup,to-inject src/app/services/
-/ng-migrate modernize src/app/users/
+/modernize src/app/users/user.component.ts
+/modernize src/app/users/
 ```
 
-Operations always run in the safe canonical order regardless of how you list them: `to-subscribe → to-inject → to-cleanup → to-signals → to-template`.
-
-## Usage — natural language
-
-The skill also triggers on natural language without commands:
+Everything else is triggered by **natural language** — name a target file or folder and describe what you want, the skill picks the right operation(s):
 
 ```text
 "Migrate src/app/user/user.component.ts to signals"
 "Convert constructor injection to inject() in src/app/api.service.ts"
 "Add takeUntilDestroyed to src/app/user/"
+"Convert subscribe callbacks to object form in src/app/services/api.service.ts"
 "Convert *ngIf to @if in src/app/dashboard/"
-"Modernize src/app/users/"
+"Modernize src/app/users/"   ← same as /modernize
 ```
 
-When you say "to signals" on a `.ts` file, the skill auto-locates and migrates the paired `.html` template (or inline `template:`) so signal reads use `()`.
+The skill always requires a target. It refuses to run on the whole project / cwd without one.
 
-## Coverage guarantee for `to-signals`
+## How `to-signals` handles tricky cases
 
-Every plain stateful class field becomes a signal — including fields without initializers. Uninitialized typed fields become `signal<T | undefined>(undefined)` to preserve "uninitialized" semantics. The skip list is small and explicit:
+- **Uninitialized typed fields** become `signal<T | undefined>(undefined)` to preserve original "uninitialized" semantics. No invented defaults like `false`/`0`/`''`.
+- **`@Input()`** → `input<T>()` / `input.required<T>()` / `input<T>(default, { alias, transform })`.
+- **`@Output()`** → `output<T>()` / `output<T>({ alias })`. Call sites `.emit(x)` keep working.
+- **`@Input()` of `FormGroup` / `FormControl` / `FormArray` / `AbstractControl`** is left untouched with a `TODO(ng-migrate)` — these are reference handoffs and parents often share the instance.
+- **Two-way bindings** (`[(visible)]="display"`) get split in the template: `[visible]="display()" (visibleChange)="display.set($event)"`. The TS field is converted to a signal as usual.
+- **Setter-style `@Input set foo(v) { ... }`** is left as-is with a TODO (manual review — usually means converting to `input()` + `effect()` or `computed()`).
+- **Function-reference aliases** (`fn: (x: T) => U = otherFn`) are detected as method aliases, not state, and skipped.
+- **Subjects / Observables** are skipped (already reactive primitives).
 
-- decorator-bound fields (`@Input`, `@Output`, `@ViewChild`, etc.)
-- already-signal forms (`signal()`, `computed()`, `input()`, `model()`, `viewChild()`, `toSignal()`, …)
-- `inject(...)` initializers
-- `readonly` / `static`
-- `Subject` / `BehaviorSubject` / `Observable` (already reactive)
-- methods, getters, setters, function-reference aliases
+## How `to-inject` places the inject block
 
-Each `to-signals` run ends with a mandatory coverage check — if any non-skip-list field is left as a plain field, the skill fixes it before reporting done.
+After migration, the class layout is:
+
+```ts
+export class Foo extends Bar {
+  // signals / inputs / outputs
+  loading = signal(true);
+  count = input(0);
+  saved = output<User>();
+
+  // computed
+  total = computed(() => this.count() * 2);
+
+  // getters / setters
+  get isReady() { return !this.loading(); }
+
+  // ── inject block lands here (where the constructor was) ──
+  private fooSvc = inject(FooService);
+  private barSvc = inject(BarService);
+  private destroyRef = inject(DestroyRef);
+
+  // constructor — kept only if its body still has logic
+  constructor() {
+    super();
+    this.initForm();
+  }
+
+  // methods
+  ngOnInit() { ... }
+}
+```
+
+Constructor parameters with access modifiers (`private`/`protected`/`public`/`readonly`) become inject fields. Decorators are translated to options:
+- `@Optional()` → `{ optional: true }`
+- `@SkipSelf()` → `{ skipSelf: true }`
+- `@Self()` → `{ self: true }`
+- `@Host()` → `{ host: true }`
+- `@Inject(TOKEN)` → `inject(TOKEN)` directly
+
+If the constructor body becomes empty AND no `super()` is needed, the constructor is removed.
 
 ## What the skill will NOT do
 
@@ -106,6 +129,7 @@ Each `to-signals` run ends with a mandatory coverage check — if any non-skip-l
 - Run a build or typecheck without asking you first.
 - Convert constructor parameters that lack an access modifier (those are local-only).
 - Convert subscribes on non-RxJS sources (event emitters, custom subscribe).
+- Convert `@ViewChild` / `@ContentChild` / `@HostBinding` (out of scope for this version).
 
 ## Verification
 
@@ -127,10 +151,10 @@ Grep for `TODO(ng-migrate)` after a run to find them.
 ## Angular version requirements
 
 - `to-inject` — v14+ (recommended v16+)
-- `to-cleanup` — v16+
-- `to-signals` — v16+
-- `to-template` — v17+
-- `to-subscribe` — any modern RxJS version
+- `take-until-destroyed` — v16+
+- `signals` — v16+ for `signal()`/`computed()`; v17.1+ for `input()`/`output()`
+- `template-control-flow` — v17+
+- `subscribe-object-form` — any modern RxJS version
 
 The skill reads `package.json` for `@angular/core` and warns before running anything that requires a newer version.
 
@@ -142,22 +166,16 @@ angular-modernize/
 │   ├── plugin.json
 │   └── marketplace.json
 ├── README.md
-├── commands/                                   # slash commands
-│   ├── to-signals.md
-│   ├── to-subscribe.md
-│   ├── to-cleanup.md
-│   ├── to-inject.md
-│   ├── to-template.md
-│   ├── modernize.md
-│   └── ng-migrate.md
+├── commands/
+│   └── modernize.md                            # the only slash command
 └── skills/
     └── angular-modernize/
         ├── SKILL.md
         └── references/
             ├── shared-conventions.md
-            ├── take-until-destroyed.md
             ├── subscribe-object-form.md
             ├── to-inject.md
+            ├── take-until-destroyed.md
             ├── ts-to-signals.md
             ├── template-to-signals.md
             └── template-control-flow.md
